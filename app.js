@@ -3,16 +3,30 @@
  */
 
 
-Ext.create('Ext.window.Window', {
-    title: 'Hello',
-    height: 200,
-    width: 400,
-    layout: 'fit',
-    render: 'viewport',
-    items: {  // Let's put an empty grid in just to illustrate fit layout
-        xtype: 'grid',
-        border: false,
-        columns: [{header: 'World'}],                 // One header just for show. There's no data,
-        store: Ext.create('Ext.data.ArrayStore', {}) // A dummy empty data store
+Ext.application({
+    name: 'MultiUpload',
+
+    launch: function () {
+
+        Ext.widget({
+            renderTo: Ext.getBody(),
+            xtype: 'grid',
+            id: 'grid',
+            title: 'Multi Upload',
+            width: 650,
+            height: 300,
+            store: {
+                fields: ['id', 'name', 'size', 'status', 'progress']
+            },
+            columns: [
+                {xtype: 'rownumberer'},
+                {text: 'File name', dataIndex: 'name', flex: 1, editor: 'textfield'},
+                {text: 'Size', dataIndex: 'size'},
+                {text: 'Status', dataIndex: 'status'},
+                {text: 'Progress', dataIndex: 'progress'}
+
+            ]
+        })
+
     }
-}).show();
+});
