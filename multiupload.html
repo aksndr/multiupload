@@ -5,17 +5,162 @@
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <link rel="stylesheet" type="text/css"
-          href="ext/packages/ext-theme-neptune/build/resources/ext-theme-neptune-all.css">
+          href="ext/packages/ext-theme-crisp/build/resources/ext-theme-crisp-all.css">
     <script type="text/javascript" src="ext/build/ext-all.js"></script>
-    <script type="text/javascript" src="ext/packages/ext-theme-neptune/build/ext-theme-neptune.js"></script>
+    <script type="text/javascript" src="ext/packages/ext-theme-crisp/build/ext-theme-crisp.js"></script>
     <script type="text/javascript" src="app.js"></script>
+    <script type="text/javascript" src="js/plupload.full.min.js"></script>
 
 
     <script type="text/javascript">
+
+        function getFileExtension(fileName) {
+            return fileName.split('.').pop();
+        }
+
+        function mimeNotAllowed(fileExtension, mimeFilterStore) {
+            var found = mimeFilterStore.find('extensions', fileExtension, 0, true, false, false);
+            return (found == 0);
+        }
+
+
         Ext.onReady(function () {
             var grid = Ext.getCmp('grid');
-            console.log(grid.getEl());
+            var selButton = Ext.getCmp('pickfiles');
+            var pickButton = Ext.getCmp('uploadfiles');
+            var removeButton = Ext.getCmp('removefile');
+            removeButton.setVisible(false);
+            var selectedRow = Ext.create('SelectedRowModel');
+
+
+            var filtredErrorsStore = Ext.create('ErrorsStore');
+
+            var mime_types = [
+                {title: "Image files", extensions: "jpg,gif,png"},
+                {title: "Zip files", extensions: "zip"},
+                {title: "PDF files", extensions: "pdf"}
+            ];
+
+            var prevent_duplicates = true;
+
+            var mimeFilterStore = Ext.create('Ext.data.Store', {
+                model: 'MimeFilter',
+                data: mime_types
+            });
+
+
+            var maxFileSize = 10;
+            var maxFileSizeFilterValue = maxFileSize + 'mb';
+            var maxFileSizeExceededErrorTextTemplate = 'Файл превышает ограничение размера в {0} мегабайт.';
+            var disallowedFileExtUsedTemplate = 'Загрузка файлов формата {0} запрещена настройками системы.';
+            var duplicateFileSelectedErrorText = 'Файл с таким именем уже добавлен в список загрузки.';
+            var fileLoadSuccessText = 'Файл загружен успешно.';
+            var fileLoadErrorText = 'Ошибка загрузки файла.';
+            var maxFileSizeExceededErrorText = Ext.String.format(maxFileSizeExceededErrorTextTemplate, maxFileSize);
+
+            var uploader = new plupload.Uploader({
+                runtimes: 'html5,flash,silverlight,html4',
+                browse_button: 'pickfiles', // you can pass in id...
+                container: 'grid', // ... or DOM Element itself
+                url: 'upload.php',
+                flash_swf_url: '../js/Moxie.swf',
+                silverlight_xap_url: '../js/Moxie.xap',
+
+                filters: {
+                    max_file_size: maxFileSizeFilterValue,
+                    mime_types: mime_types,
+                    prevent_duplicates: prevent_duplicates
+                },
+
+                init: {
+                    PostInit: function () {
+                        document.getElementById('filelist').innerHTML = '';
+
+                        document.getElementById('uploadfiles').onclick = function () {
+                            uploader.start();
+                            return false;
+                        };
+                    },
+
+                    FilesAdded: function (up, files) {
+                        plupload.each(files, function (file) {
+                            var fileName = file.name;
+                            var fileSizeInMb = file.size / (1024 * 1024);
+                            var size = Ext.util.Format.number(fileSizeInMb, '0.00') + ' Mb';
+
+                            grid.getStore().add({id: file.id, name: fileName, size: size, status: '', progress: ''});
+//                            document.getElementById('filelist').innerHTML += '<div id="' + file.id + '">' + file.name + ' (' + plupload.formatSize(file.size) + ') <b></b></div>';
+                        });
+                        if (filtredErrorsStore.count() > 0) {
+                            var errorsPanel = Ext.create('Ext.window.Window', {
+                                height: 300,
+                                width: 600,
+                                layout: 'fit',
+                                title: 'Ошибки добавления файлов',
+                                modal: true,
+                                items: {
+                                    xtype: 'filtredFilesGrid',
+                                    border: false,
+                                    store: filtredErrorsStore
+                                }
+                            });
+                            errorsPanel.show();
+                        }
+                    },
+
+                    UploadProgress: function (up, file) {
+                        //document.getElementById(file.id).getElementsByTagName('b')[0].innerHTML = '<span>' + file.percent + "%</span>";
+
+                        var index = grid.getStore().findExact('id', file.id );
+                        var percent = file.percent + '%';
+                        grid.getStore().getAt(index).set( 'progress', percent, {dirty : false} );
+                        if (file.percent==100){
+                            var status = '<div align="center"><img src="img/ready.gif" alt="Success" title="'+fileLoadSuccessText+'"/></div>';
+                            grid.getStore().getAt(index).set( 'status', status, {dirty : false} );
+                        }
+                    },
+
+                    Error: function (up, err) {
+                        //document.getElementById('console').innerHTML += "\n Error #" + err.code + ": " + err.message;
+                        var file = err.file;
+                        var fileName = file.name;
+                        var index = grid.getStore().findExact('id', file.id );
+                        if (err.code == -600) {
+                            filtredErrorsStore.add({fileName: fileName, errorText: maxFileSizeExceededErrorText});
+                        } else if (err.code == -601) {
+                            var fileExtension = getFileExtension(fileName);
+                            filtredErrorsStore.add({
+                                fileName: fileName,
+                                errorText: Ext.String.format(disallowedFileExtUsedTemplate, fileExtension)
+                            });
+                        } else if (err.code == -602) {
+                            filtredErrorsStore.add({fileName: fileName, errorText: duplicateFileSelectedErrorText});
+                        } else {
+                            var status = '<div align="center"><img src="img/error.gif" alt="Error" title="'+fileLoadErrorText+'"/></div>';
+                            grid.getStore().getAt(index).set( 'status', status, {dirty : false} );
+                        }
+
+                    }
+                }
+            });
+
+            uploader.init();
+
+
+            grid.on('select', function (rowmodel, record, index, eOpts) {
+                selectedRow.id = record.id;
+                selectedRow.index = index;
+                removeButton.setVisible(true);
+            });
+
+
+            removeButton.on('click', function () {
+                grid.getStore().removeAt(selectedRow.index);
+                uploader.removeFile(selectedRow.id);
+                removeButton.setVisible(false);
+            });
         });
+
     </script>
 
 
@@ -23,7 +168,8 @@
 
 <body>
 <div id="panel"></div>
-<div id="filelist"></div>
+<div id="filelist">Your browser doesn't have Flash, Silverlight or HTML5 support.</div>
+<div id="console"></div>
 
 </body>
 </html>
